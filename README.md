@@ -3,20 +3,15 @@
 [![Julia](https://img.shields.io/badge/Julia-1.10-9558B2?logo=julia)](https://julialang.org)
 [![WaterLily](https://img.shields.io/badge/WaterLily-1.7-007ACC)](https://github.com/weymouth/WaterLily.jl)
 
-A 2D flapping wing simulation using the **Boundary Data Immersion Method (BDIM)** in [WaterLily.jl](https://github.com/weymouth/WaterLily.jl). The wing undergoes combined heave (vertical translation) and pitch (rotation) motion, representative of biological flight and bio-inspired propulsion.
-
-<p align="center">
-  <img src="docs/img/vorticity_placeholder.png" alt="Vorticity field visualization (add your ParaView screenshot here)" width="600"/>
-  <br><em>Example vorticity field — replace with your own ParaView screenshot.</em>
-</p>
+I built this to simulate a 2D flapping wing — like a bird or fish — using [WaterLily.jl](https://github.com/weymouth/WaterLily.jl), a CFD solver that handles complex shapes without needing a body-fitted mesh. The wing does a combined up-down (heave) and tilt (pitch) motion. It prints force coefficients (Cd, Cl) as it runs, and exports everything to ParaView so you can watch the vortices form and shed.
 
 ---
 
 ## Physics
 
-### Wing Kinematics
+### Wing motion
 
-The foil center follows a combined heave–pitch trajectory with a $\pi/2$ phase offset:
+The foil moves like this:
 
 $$
 \begin{aligned}
@@ -25,50 +20,41 @@ h(t) &= h_{\text{amp}} \cdot c \cdot \sin(2\pi f t) \\
 \end{aligned}
 $$
 
-where $c$ is the chord length, $f$ is the flapping frequency, $h_{\text{amp}}$ is the heave amplitude (in chords), and $\theta_{\text{amp}}$ is the pitch amplitude (in radians). Heave leads pitch by $90^\circ$, producing the characteristic flapping stroke.
+Heave ($h$) and pitch ($\theta$) are $90^\circ$ out of phase — the wing plunges up and down while tilting, just like a real flapping wing. $c$ is the chord length, $f$ is the flapping frequency.
 
-### Dimensionless Numbers
+### Reynolds and Strouhal numbers
 
-**Reynolds number** — ratio of inertial to viscous forces:
-
-$$
-Re = \frac{U c}{\nu}
-$$
-
-**Strouhal number** — ratio of unsteady to inertial forces, based on total heave amplitude $A = 2 h_{\text{amp}} c$:
+Two numbers control the flow physics:
 
 $$
+Re = \frac{U c}{\nu}, \qquad
 St = \frac{f A}{U}
 $$
 
-The flapping frequency is derived from the Strouhal definition:
+$Re$ compares inertia to viscosity (laminar vs turbulent), $St$ compares flapping speed to flow speed. $A = 2 h_{\text{amp}} c$ is the total heave amplitude. The frequency comes from the Strouhal definition:
 
 $$
 f = \frac{St \cdot U}{2 h_{\text{amp}} c}
 $$
 
-### Force Coefficients
+### Force coefficients
 
-Drag and lift coefficients are computed at each timestep using WaterLily's built-in force integration (`WaterLily.total_force(sim)`). The coefficients are normalized as:
+At every timestep, WaterLily integrates the pressure and viscous forces on the body and I normalize them:
 
 $$
 C_d = \frac{F_x}{\frac{1}{2} \rho U^2 c}, \qquad
 C_l = \frac{F_y}{\frac{1}{2} \rho U^2 c}
 $$
 
-where $\rho = 1$ in lattice units.
+($\rho = 1$ in lattice units.) You'll see these printed in the console as the simulation runs.
 
-### Boundary Data Immersion Method
+### How the body works
 
-WaterLily uses the BDIM, which represents solid boundaries through a smooth kernel convolution rather than body-conformal meshes. The body is defined by:
-- A **signed distance function (SDF)** $\phi(\mathbf{x}, t)$ — negative inside the body, positive outside
-- A **map function** $\mathbf{\chi}(\mathbf{x}, t)$ — transforms world coordinates to body coordinates
+WaterLily uses the **Boundary Data Immersion Method (BDIM)** — no mesh around the body, just a signed distance function (SDF) that says "inside" vs "outside", and a map function that moves coordinates from the world frame to the body frame. The foil here is a rounded rectangle, basically a flat plate with rounded edges, 12% thick relative to chord.
 
-This simulation uses a rounded-rectangle foil (NACA-like profile) with thickness $0.12c$.
+### Smooth startup
 
-### Smooth Startup
-
-An impulsive start can generate transient vortices that contaminate early-time statistics. A smooth ramp-up envelope is applied over the first flapping period $T$:
+If you just start flapping from rest, you get a big lurch in the flow that takes a while to wash out. I added a smooth ramp over the first period:
 
 $$
 \text{ramp}(t) = \begin{cases}
@@ -77,39 +63,35 @@ $$
 \end{cases}
 $$
 
-The heave and pitch amplitudes are multiplied by this envelope:
-$h(t) = \text{ramp}(t) \cdot h_0(t)$, $\theta(t) = \text{ramp}(t) \cdot \theta_0(t)$.
+The heave and pitch get multiplied by this, so they fade in gently.
 
-> **Note on domain size:** The domain extends 9 chord lengths downstream of the foil, which is adequate for $Re = 250$ at moderate Strouhal numbers. For higher Reynolds numbers or Strouhal numbers, a larger wake region is recommended to prevent vortex reflections from the outlet boundary.
+> **One caveat:** The domain is 9 chord lengths behind the foil. That's fine for $Re = 250$ at moderate Strouhal numbers, but if you crank up $Re$ or $St$, vortices might bounce off the outlet boundary. Just make the domain bigger.
 
 ---
 
 ## Getting Started
 
-### Prerequisites
+### You'll need
 
 - [Julia](https://julialang.org/downloads/) ≥ 1.10
-- [ParaView](https://www.paraview.org/download/) (for visualization)
+- [ParaView](https://www.paraview.org/download/) to look at the results
 
-### Run the Simulation
+### Run it
 
 ```bash
 git clone https://github.com/aryandeshmukh1510/FlappingWingSimulation
 cd FlappingWingTest1
 
-# Instantiate project dependencies
+# Download dependencies
 julia --project=. -e 'using Pkg; Pkg.instantiate()'
 
-# Run with default parameters
+# Run with defaults
 julia --project=. src/FlappingWing.jl
 ```
 
-### Custom Parameters
+### Change parameters
 
-Default parameters can be overridden by either:
-
-1. **Modifying the struct defaults** in `src/FlappingWing.jl`, or
-2. **Creating a custom script** (outside the repo):
+Tweak anything by passing keyword arguments:
 
 ```julia
 include("src/FlappingWing.jl")
@@ -117,71 +99,66 @@ using .FlappingWing
 
 params = FlappingWingParams(
     chord = 64,       # higher resolution
-    Re = 1000,        # higher Reynolds number
-    St = 0.6,         # higher Strouhal number
-    t_end = 20.0,     # longer simulation
+    Re = 1000,        # more interesting flow
+    St = 0.6,         # faster flapping
+    t_end = 20.0,     # longer sim
 )
 
 run!(params; output_dir="output")
 ```
 
+Or just edit the defaults in `src/FlappingWing.jl` directly.
+
 ---
 
 ## Parameters
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `chord`   | 32      | Chord length in lattice units |
-| `thk_ratio` | 0.12 | Foil thickness-to-chord ratio |
+All the knobs and what they do:
+
+| Parameter | Default | What it is |
+|-----------|---------|------------|
+| `chord`   | 32      | Chord length in grid cells |
+| `thk_ratio` | 0.12 | Foil thickness ÷ chord |
 | `Re`      | 250     | Reynolds number |
-| `U`       | 1.0     | Free-stream velocity (lu) |
+| `U`       | 1.0     | Flow speed |
 | `St`      | 0.3     | Strouhal number |
-| `h_amp`   | 1.0     | Heave amplitude (fraction of chord) |
+| `h_amp`   | 1.0     | Heave amplitude (× chord) |
 | `θ_amp`   | π/4     | Pitch amplitude (radians) |
-| `nx`      | 12      | Domain size in chords (x-direction) |
-| `ny`      | 8       | Domain size in chords (y-direction) |
-| `center_frac_x` | 0.25 | Foil pivot x-position (fraction of nx) |
-| `center_frac_y` | 0.50 | Foil pivot y-position (fraction of ny) |
-| `t_end`   | 10.0    | Simulation end time (convective units) |
-| `write_interval` | 0.1 | Time between VTK exports |
-| `Δt_max`  | 0.25    | Max time step (CFL constraint) |
+| `nx`      | 12      | Domain width in chords |
+| `ny`      | 8       | Domain height in chords |
+| `center_frac_x` | 0.25 | Foil x-position (fraction of width) |
+| `center_frac_y` | 0.50 | Foil y-position (fraction of height) |
+| `t_end`   | 10.0    | How long to simulate |
+| `write_interval` | 0.1 | Time between saved frames |
+| `Δt_max`  | 0.25    | Max timestep size |
 
 ---
 
-## Visualization in ParaView
+## Viewing in ParaView
 
 1. Open ParaView
-2. **File → Open** → select `output/flapping_sim.pvd`
-3. Click **Apply** in the Properties panel
-4. In the dropdown next to the toolbar, select a field to visualize:
-   - `u` — velocity magnitude (good overview)
-   - `p` — pressure field (shows high/low regions)
-   - `body_sdf` — signed distance function (shows the body)
-5. To view **vorticity**:
-   - Select the pipeline, go to **Filters → Alphabetical → Gradient Of Unstructured Dataset**
-   - Set **Scalar Array** to `u` and **Result Arrays** to `Vorticity`
-   - Click **Apply**
-6. Use **Play** (spacebar) to animate through timesteps
-7. For publication-quality output:
-   - Use the **Save Animation** or **Export Scene** tools
-   - Recommended: vorticity colormap with a diverging palette ("Cool to Warm")
+2. **File → Open** → pick `output/flapping_sim.pvd`
+3. Hit **Apply**
+4. Pick a field to color by: `u` (velocity), `p` (pressure), or `body_sdf`
+5. Want **vorticity**? **Filters → Alphabetical → Gradient Of Unstructured Dataset**, set **Scalar Array** to `u`, hit **Apply**
+6. Hit **Play** (spacebar) to watch it run through time
 
 ---
 
-## Project Structure
+## Project layout
 
 ```
 FlappingWingTest1/
 ├── src/
-│   └── FlappingWing.jl      # Simulation module (struct, SDF, motion, force output)
-├── output/                   # VTK snapshots (gitignored)
-│   ├── flapping_sim.pvd      # Time series file for ParaView
-│   └── flapping_sim_*.vti    # Individual timestep files
+│   └── FlappingWing.jl      # The main code
+├── output/                   # VTK files (gitignored)
+│   ├── flapping_sim.pvd
+│   └── flapping_sim_*.vti
 ├── docs/
-│   └── img/                  # Screenshots and figures
+│   └── img/                  # For your ParaView screenshots
 ├── .gitignore
-├── LICENSE                   # MIT License
-├── Project.toml              # Julia project dependencies
+├── LICENSE
+├── Project.toml
 └── README.md
 ```
 
@@ -189,17 +166,17 @@ FlappingWingTest1/
 
 ## Dependencies
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| [WaterLily.jl](https://github.com/weymouth/WaterLily.jl) | 1.7 | Immersed boundary CFD solver |
-| [StaticArrays.jl](https://github.com/JuliaArrays/StaticArrays.jl) | 1.9 | Stack-allocated vector math |
-| [WriteVTK.jl](https://github.com/jipolanco/WriteVTK.jl) | 1.21 | VTK file export for ParaView |
-| [Printf.jl](https://docs.julialang.org/en/v1/stdlib/Printf/) | (stdlib) | Formatted console output |
+| Package | What it does |
+|---------|--------------|
+| [WaterLily.jl](https://github.com/weymouth/WaterLily.jl) | The CFD engine |
+| [StaticArrays.jl](https://github.com/JuliaArrays/StaticArrays.jl) | Fast fixed-size arrays |
+| [WriteVTK.jl](https://github.com/jipolanco/WriteVTK.jl) | ParaView file export |
+| Printf | Console formatting (built into Julia) |
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
 
 Copyright (c) 2026 Aryan Deshmukh
