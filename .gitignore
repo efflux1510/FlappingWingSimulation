@@ -1,0 +1,7 @@
+output/
+*.vti
+*.pvd
+*.jld2
+.DS_Store
+*.bak
+*.swp
